@@ -47,6 +47,17 @@ export default function App() {
   const [reflectionSaveError, setReflectionSaveError] = useState<string | null>(null);
   const [bottomReflectionAnalysis, setBottomReflectionAnalysis] = useState<any>(null);
 
+  // Plan History states (localStorage persistence)
+  const [history, setHistory] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('the_long_run_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [selectedHistoryDate, setSelectedHistoryDate] = useState<string | null>(null);
+
   // UTC Clock state
   const [timeString, setTimeString] = useState('');
 
@@ -100,6 +111,30 @@ export default function App() {
 
       const responseData = await response.json();
       setPlan(responseData);
+
+      const newPlanItem = {
+        date: new Date().toISOString(),
+        goal: goal,
+        energy: energy,
+        hours: hours,
+        deadline: deadline,
+        today_summary: responseData.today_summary,
+        today_plan: responseData.today_plan,
+        future_relief: responseData.future_relief,
+        reasoning: responseData.reasoning
+      };
+
+      setHistory(prevHistory => {
+        const updated = [newPlanItem, ...prevHistory].slice(0, 10);
+        try {
+          localStorage.setItem('the_long_run_history', JSON.stringify(updated));
+        } catch (e) {
+          console.error("Failed to write to localStorage:", e);
+        }
+        return updated;
+      });
+      setSelectedHistoryDate(newPlanItem.date);
+
       window.scrollTo({
         top: 0,
         behavior: 'smooth',
@@ -138,6 +173,25 @@ export default function App() {
 
       const responseData = await response.json();
       setReflectionAnalysis(responseData);
+
+      // Save satisfaction to the active plan in history
+      setHistory(prevHistory => {
+        const updated = prevHistory.map(item => {
+          if (item.date === selectedHistoryDate) {
+            return {
+              ...item,
+              satisfaction: satisfaction * 2 // Normalize 1-5 to 1-10 scale
+            };
+          }
+          return item;
+        });
+        try {
+          localStorage.setItem('the_long_run_history', JSON.stringify(updated));
+        } catch (e) {
+          console.error("Failed to write to localStorage:", e);
+        }
+        return updated;
+      });
     } catch (err: any) {
       console.error("Error analyzing reflection:", err);
       setReflectionAnalysisError("Unable to analyze reflection. Please try again.");
@@ -182,6 +236,25 @@ export default function App() {
       const responseData = await response.json();
       setBottomReflectionAnalysis(responseData);
       setReflectionSaved(true);
+
+      // Save satisfaction to the active plan in history
+      setHistory(prevHistory => {
+        const updated = prevHistory.map(item => {
+          if (item.date === selectedHistoryDate) {
+            return {
+              ...item,
+              satisfaction: reflectionSatisfaction // Already 1-10 scale
+            };
+          }
+          return item;
+        });
+        try {
+          localStorage.setItem('the_long_run_history', JSON.stringify(updated));
+        } catch (e) {
+          console.error("Failed to write to localStorage:", e);
+        }
+        return updated;
+      });
     } catch (err: any) {
       console.error("Error analyzing bottom reflection:", err);
       setReflectionSaveError("Unable to generate plan. Please try again.");
@@ -358,6 +431,75 @@ export default function App() {
     : typeof rawWhySuggested === 'string' 
       ? [rawWhySuggested] 
       : [];
+
+  // Relative category helper
+  const getRelativeCategory = (dateString: string) => {
+    try {
+      const planDate = new Date(dateString);
+      const now = new Date();
+      
+      const planMidnight = new Date(planDate.getFullYear(), planDate.getMonth(), planDate.getDate());
+      const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      const diffMs = nowMidnight.getTime() - planMidnight.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffDays <= 0) {
+        return 'Today';
+      } else if (diffDays === 1) {
+        return 'Yesterday';
+      } else {
+        return 'Older dates';
+      }
+    } catch (e) {
+      return 'Older dates';
+    }
+  };
+
+  const categoriesList = ['Today', 'Yesterday', 'Older dates'] as const;
+  
+  const groupedHistory = history.reduce((acc, item) => {
+    const cat = getRelativeCategory(item.date);
+    if (!acc[cat]) {
+      acc[cat] = [];
+    }
+    acc[cat].push(item);
+    return acc;
+  }, {} as Record<string, typeof history>);
+
+  // Computations for Insights Card
+  const totalPlans = history.length;
+  
+  const averageHours = totalPlans > 0 
+    ? Number((history.reduce((sum, item) => sum + (Number(item.hours) || 0), 0) / totalPlans).toFixed(1))
+    : 0;
+  
+  const energyCounts = history.reduce((acc, item) => {
+    const e = item.energy || 'Medium';
+    acc[e] = (acc[e] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  let mostCommonEnergy = 'N/A';
+  let maxCount = 0;
+  for (const energyLvl in energyCounts) {
+    const count = energyCounts[energyLvl];
+    if (count > maxCount) {
+      maxCount = count;
+      mostCommonEnergy = energyLvl;
+    }
+  }
+
+  const averageTasks = totalPlans > 0
+    ? Number((history.reduce((sum, item) => sum + (Array.isArray(item.today_plan) ? item.today_plan.length : 0), 0) / totalPlans).toFixed(1))
+    : 0;
+
+  const mostRecentGoal = history.length > 0 ? history[0].goal : 'None';
+
+  const itemsWithSatisfaction = history.filter(item => typeof item.satisfaction === 'number');
+  const averageSatisfaction = itemsWithSatisfaction.length > 0
+    ? Number((itemsWithSatisfaction.reduce((sum, item) => sum + item.satisfaction, 0) / itemsWithSatisfaction.length).toFixed(1))
+    : null;
 
   // Immersive UI Premium styling parameters
   const bodyStyle = {
@@ -591,6 +733,217 @@ export default function App() {
                 )}
               </button>
             </form>
+          </section>
+
+          {/* History Card */}
+          <section style={glassStyle}>
+            <div style={cardTitleStyle}>History</div>
+            {history.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>
+                No previous plans.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
+                {categoriesList.map(cat => {
+                  const items = groupedHistory[cat] || [];
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={cat} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                      <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', fontWeight: 700, marginTop: '0.25rem', marginBottom: '0.25rem' }}>
+                        {cat}
+                      </div>
+                      {items.map((item: any, idx: number) => {
+                        const isSelected = selectedHistoryDate === item.date;
+                        return (
+                          <button
+                            key={item.date || idx}
+                            type="button"
+                            onClick={() => {
+                              setPlan({
+                                today_summary: item.today_summary,
+                                today_plan: item.today_plan,
+                                future_relief: item.future_relief,
+                                reasoning: item.reasoning
+                              });
+                              setGoal(item.goal);
+                              setEnergy(item.energy);
+                              setHours(item.hours);
+                              setDeadline(item.deadline);
+                              setSelectedHistoryDate(item.date);
+                            }}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '0.6rem 0.8rem',
+                              borderRadius: '0.75rem',
+                              background: isSelected ? 'rgba(124, 58, 237, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                              border: isSelected ? '1px solid rgba(124, 58, 237, 0.4)' : '1px solid rgba(255, 255, 255, 0.05)',
+                              color: isSelected ? '#a78bfa' : '#94a3b8',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              transition: 'all 0.2s',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.15rem',
+                            }}
+                          >
+                            <div style={{ 
+                              fontWeight: 600, 
+                              color: isSelected ? '#f472b6' : '#e2e8f0', 
+                              whiteSpace: 'nowrap', 
+                              overflow: 'hidden', 
+                              textOverflow: 'ellipsis',
+                              maxWidth: '100%'
+                            }}>
+                              {item.goal}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', display: 'flex', gap: '0.5rem', color: isSelected ? '#a78bfa' : '#64748b' }}>
+                              <span>⚡ {item.energy}</span>
+                              <span>⏰ {item.hours}h</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Insights Card */}
+          <section style={glassStyle}>
+            <div style={{ ...cardTitleStyle, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <TrendingUp className="w-4 h-4 text-[#a78bfa]" />
+              <span>Insights</span>
+            </div>
+            
+            {history.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: '0.85rem', textAlign: 'center', padding: '1rem 0' }}>
+                No plans generated yet. Insights will appear once you create your first plan.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                
+                {/* Total Plans Created */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Total Plans
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f472b6' }}>
+                    {totalPlans}
+                  </div>
+                </div>
+
+                {/* Average Hours Planned */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Avg. Hours
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#a78bfa', display: 'flex', alignItems: 'baseline', gap: '0.15rem' }}>
+                    {averageHours}<span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>h</span>
+                  </div>
+                </div>
+
+                {/* Most Common Energy Level */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Energy Level
+                  </div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#38bdf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    ⚡ {mostCommonEnergy}
+                  </div>
+                </div>
+
+                {/* Average Tasks Per Day */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Avg. Tasks
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#10b981' }}>
+                    {averageTasks}
+                  </div>
+                </div>
+
+                {/* Most Recent Goal */}
+                <div style={{
+                  gridColumn: 'span 2',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '0.75rem',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Most Recent Goal
+                  </div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {mostRecentGoal}
+                  </div>
+                </div>
+
+                {/* Average Satisfaction (if reflections exist) */}
+                {averageSatisfaction !== null && (
+                  <div style={{
+                    gridColumn: 'span 2',
+                    background: 'rgba(244, 114, 182, 0.03)',
+                    border: '1px solid rgba(244, 114, 182, 0.15)',
+                    borderRadius: '0.75rem',
+                    padding: '0.75rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                      <div style={{ fontSize: '0.65rem', color: '#f472b6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Avg. Satisfaction
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                        From daily reflections
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f472b6', display: 'flex', alignItems: 'baseline', gap: '0.1rem' }}>
+                      {averageSatisfaction}<span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>/10</span>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
           </section>
 
           {/* Connected Server Health indicator */}

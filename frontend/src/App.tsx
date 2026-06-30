@@ -18,6 +18,8 @@ export default function App() {
   // Input states
   const [goal, setGoal] = useState('');
   const [energy, setEnergy] = useState('Medium');
+  const [hours, setHours] = useState(4);
+  const [deadline, setDeadline] = useState('');
   
   // Real backend loading & response states (Connecting directly to http://127.0.0.1:8000/generate-plan)
   const [plan, setPlan] = useState<any>(null);
@@ -71,7 +73,9 @@ export default function App() {
         },
         body: JSON.stringify({
           goal: goal,
-          energy: energy
+          energy: energy,
+          hours: hours,
+          deadline: deadline
         }),
       });
 
@@ -94,7 +98,9 @@ export default function App() {
   };
 
   // Safe mapping of dynamic properties coming from FastAPI backend
-  const summaryText = plan?.today_summary || "Submit your Daily Goal and Current Mental Stamina to fetch your customized agenda from the planner algorithm.";
+  const summaryText = isLoading
+    ? "Building your personalized plan..."
+    : (plan?.today_summary || "Submit your Daily Goal and Current Mental Stamina to fetch your customized agenda from the planner algorithm.");
   const tasksList = plan?.today_plan || [];
   const futureReliefText = plan?.future_relief || "Complete tasks today to earn cognitive freedom tomorrow.";
   
@@ -286,6 +292,34 @@ export default function App() {
                 </select>
               </div>
 
+              {/* Available Hours */}
+              <div style={inputGroupStyle}>
+                <label style={labelStyle}>Available Hours Today</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  value={hours}
+                  onChange={(e) => setHours(Number(e.target.value))}
+                  style={inputStyle}
+                  required
+                />
+              </div>
+
+              {/* Deadline */}
+              <div style={inputGroupStyle}>
+                <label style={labelStyle}>Deadline</label>
+                <input
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  style={{
+                    ...inputStyle,
+                    colorScheme: 'dark',
+                  }}
+                />
+              </div>
+
               {/* 3. Generate Plan Button */}
               <button 
                 type="submit"
@@ -299,7 +333,7 @@ export default function App() {
                 {isLoading ? (
                   <>
                     <span style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
-                    <span>Building your personalized schedule...</span>
+                    <span>Generating...</span>
                   </>
                 ) : (
                   <>
@@ -339,7 +373,7 @@ export default function App() {
             }}>
               <AlertCircle style={{ flexShrink: 0 }} className="w-5 h-5" />
               <div>
-                <span style={{ fontWeight: 'bold' }}>Failed to generate plan.</span> {error}
+                <span style={{ fontWeight: 'bold' }}>Unable to generate plan.</span> Please try again.
               </div>
             </div>
           )}

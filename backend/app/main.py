@@ -1,5 +1,7 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from app.planner import generate_plan
 
 app = FastAPI(
@@ -7,9 +9,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class PlanningRequest(BaseModel):
     goal: str
     energy: str
+    hours: int
+    deadline: str
 
 @app.get("/")
 def home():
@@ -19,10 +33,9 @@ def home():
 
 @app.post("/generate-plan")
 def generate_day_plan(request: PlanningRequest):
-
-    plan = generate_plan(
+    return generate_plan(
         request.goal,
-        request.energy
+        request.energy,
+        request.hours,
+        request.deadline
     )
-
-    return plan

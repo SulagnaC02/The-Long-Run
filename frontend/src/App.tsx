@@ -1,17 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, 
-  Zap, 
-  Battery, 
   Clock, 
   Brain, 
-  Compass, 
   TrendingUp, 
-  FileText, 
-  Heart,
-  ChevronRight,
   AlertCircle,
-  Check,
   Download
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';

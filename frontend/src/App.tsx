@@ -11,8 +11,10 @@ import {
   Heart,
   ChevronRight,
   AlertCircle,
-  Check
+  Check,
+  Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 export default function App() {
   // Input states
@@ -31,6 +33,19 @@ export default function App() {
   const [reflectionSatisfaction, setReflectionSatisfaction] = useState<number>(7);
   const [reflectionChange, setReflectionChange] = useState<string>('');
   const [reflectionSaved, setReflectionSaved] = useState<boolean>(false);
+
+  // New API-based Daily Reflection states
+  const [realistic, setRealistic] = useState('Yes');
+  const [satisfaction, setSatisfaction] = useState(5);
+  const [reflection, setReflection] = useState('');
+  const [reflectionAnalysis, setReflectionAnalysis] = useState<any>(null);
+  const [isAnalyzingReflection, setIsAnalyzingReflection] = useState(false);
+  const [reflectionAnalysisError, setReflectionAnalysisError] = useState<string | null>(null);
+
+  // Bottom API reflection states
+  const [isSavingReflection, setIsSavingReflection] = useState(false);
+  const [reflectionSaveError, setReflectionSaveError] = useState<string | null>(null);
+  const [bottomReflectionAnalysis, setBottomReflectionAnalysis] = useState<any>(null);
 
   // UTC Clock state
   const [timeString, setTimeString] = useState('');
@@ -95,6 +110,239 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Real backend integration to analyze reflection
+  const handleAnalyzeReflection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAnalyzingReflection(true);
+    setReflectionAnalysisError(null);
+    setReflectionAnalysis(null);
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/analyze-reflection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          realistic,
+          satisfaction,
+          reflection
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned error status: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      setReflectionAnalysis(responseData);
+    } catch (err: any) {
+      console.error("Error analyzing reflection:", err);
+      setReflectionAnalysisError("Unable to analyze reflection. Please try again.");
+    } finally {
+      setIsAnalyzingReflection(false);
+    }
+  };
+
+  // Real backend integration to save/analyze bottom reflection
+  const handleSaveReflection = async () => {
+    setIsSavingReflection(true);
+    setReflectionSaveError(null);
+    setBottomReflectionAnalysis(null);
+
+    // Map reflectionRealistic: 'yes' | 'somewhat' | 'no' | null
+    let mappedRealistic = 'Yes';
+    if (reflectionRealistic === 'yes') {
+      mappedRealistic = 'Yes';
+    } else if (reflectionRealistic === 'somewhat') {
+      mappedRealistic = 'Mostly';
+    } else if (reflectionRealistic === 'no') {
+      mappedRealistic = 'No';
+    }
+
+    try {
+      const response = await fetch('http://127.0.0.1:8000/analyze-reflection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          realistic: mappedRealistic,
+          satisfaction: reflectionSatisfaction,
+          reflection: reflectionChange
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned error status: ${response.status}`);
+      }
+
+      const responseData = await response.json();
+      setBottomReflectionAnalysis(responseData);
+      setReflectionSaved(true);
+    } catch (err: any) {
+      console.error("Error analyzing bottom reflection:", err);
+      setReflectionSaveError("Unable to generate plan. Please try again.");
+    } finally {
+      setIsSavingReflection(false);
+    }
+  };
+
+  // Generate and export PDF containing plan details
+  const handleExportPDF = () => {
+    if (!plan) return;
+
+    const doc = new jsPDF();
+    const primaryColor = [124, 58, 237]; // Purple
+    const secondaryColor = [30, 27, 75]; // Dark indigo
+    const textColor = [51, 65, 85]; // Slate
+    const lightBg = [248, 250, 252]; // Soft grey
+
+    // 1. Title Header Block
+    doc.setFillColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+    doc.rect(0, 0, 210, 40, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.text('THE LONG RUN', 15, 20);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('AI-Generated Daily Performance Schedule', 15, 28);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()} (UTC)`, 150, 20);
+
+    let y = 50;
+
+    // Helper: Draw Section Title
+    const drawSectionHeader = (title: string) => {
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(15, y, 180, 8, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(title, 20, y + 5.5);
+      y += 14;
+    };
+
+    // Helper: Print wrapped text and update y position
+    const printWrappedText = (text: string, x: number, fontSize: number, style: 'normal' | 'bold' = 'normal', color = textColor, indent = 0) => {
+      doc.setFont('helvetica', style);
+      doc.setFontSize(fontSize);
+      doc.setTextColor(color[0], color[1], color[2]);
+      
+      const maxWidth = 180 - indent;
+      const lines = doc.splitTextToSize(text, maxWidth);
+      lines.forEach((line: string) => {
+        if (y > 275) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(line, x + indent, y);
+        y += (fontSize * 0.4) + 2.5;
+      });
+    };
+
+    // 2. Metadata Section (Goal, Energy, Hours, Deadline)
+    drawSectionHeader('PLAN OVERVIEW & METADATA');
+    
+    // Quick grid background
+    doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+    doc.rect(15, y, 180, 28, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.rect(15, y, 180, 28);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+    
+    doc.text('Daily Goal:', 20, y + 8);
+    doc.text('Energy Level:', 20, y + 15);
+    doc.text('Available Hours Today:', 110, y + 8);
+    doc.text('Target Deadline:', 110, y + 15);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    doc.text(goal || 'Not specified', 45, y + 8);
+    doc.text(energy || 'Medium', 48, y + 15);
+    doc.text(`${hours} hours`, 152, y + 8);
+    doc.text(deadline || 'Not specified', 142, y + 15);
+    
+    y += 34;
+
+    // 3. Today's Summary
+    drawSectionHeader("TODAY'S SUMMARY");
+    const summaryTextVal = plan?.today_summary || '';
+    printWrappedText(summaryTextVal, 15, 10, 'normal', textColor);
+    y += 4;
+
+    // 4. Today's Schedule
+    drawSectionHeader("YOUR SCHEDULE TIMELINE");
+    const scheduleItems = plan?.today_plan || [];
+    if (scheduleItems.length > 0) {
+      scheduleItems.forEach((item: any, idx: number) => {
+        const isString = typeof item === 'string';
+        const taskTitle = isString ? item : (item.task || 'Focus Block');
+        const taskTime = isString ? '' : (item.time || item.duration || '');
+
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+
+        // Timeline marker
+        doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.setLineWidth(0.5);
+        doc.line(20, y - 5, 20, y + 5);
+        doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.circle(20, y, 2.5, 'FD');
+
+        // Text details
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        if (taskTime) {
+          doc.text(taskTime, 28, y + 1);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+          const wrappedTask = doc.splitTextToSize(taskTitle, 130);
+          doc.text(wrappedTask, 60, y + 1);
+          y += (wrappedTask.length * 5) + 3;
+        } else {
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+          const wrappedTask = doc.splitTextToSize(taskTitle, 155);
+          doc.text(wrappedTask, 28, y + 1);
+          y += (wrappedTask.length * 5) + 3;
+        }
+      });
+    } else {
+      printWrappedText('No tasks scheduled.', 15, 10, 'normal', textColor);
+    }
+    y += 6;
+
+    // 5. Why AI Suggested This (Reasoning)
+    drawSectionHeader("WHY AI SUGGESTED THIS");
+    const reasons = whySuggestedList || [];
+    if (reasons.length > 0) {
+      reasons.forEach((reason: string) => {
+        printWrappedText(`✦  ${reason}`, 15, 9.5, 'normal', textColor, 4);
+      });
+    } else {
+      printWrappedText('No reasoning notes provided by the model.', 15, 10, 'normal', textColor);
+    }
+    y += 6;
+
+    // 6. Future Relief
+    drawSectionHeader("FUTURE RELIEF");
+    const relief = plan?.future_relief || '';
+    printWrappedText(relief, 15, 10, 'normal', textColor);
+
+    // Save File
+    const sanitizedGoal = (goal || 'Plan').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    doc.save(`the-long-run-plan_${sanitizedGoal}.pdf`);
   };
 
   // Safe mapping of dynamic properties coming from FastAPI backend
@@ -414,8 +662,31 @@ export default function App() {
 
           {/* 5. Today's Plan (Interactive timeline checklist) */}
           <section style={glassStyle}>
-            <div style={{ ...cardTitleStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{ ...cardTitleStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
               <span>Your Schedule</span>
+              <button
+                type="button"
+                disabled={!plan}
+                onClick={handleExportPDF}
+                style={{
+                  background: !plan ? 'rgba(255, 255, 255, 0.04)' : '#7c3aed',
+                  color: !plan ? '#475569' : '#ffffff',
+                  border: 'none',
+                  padding: '0.45rem 0.9rem',
+                  borderRadius: '0.5rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: !plan ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  boxShadow: plan ? '0 0 12px rgba(124, 58, 237, 0.25)' : 'none',
+                }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Today's Plan</span>
+              </button>
             </div>
 
             {/* Vertical timeline layout */}
@@ -491,6 +762,173 @@ export default function App() {
               <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#64748b', fontSize: '0.9rem' }}>
                 <Clock style={{ width: '32px', height: '32px', color: '#3b384f', margin: '0 auto 0.75rem' }} />
                 Generate your first personalized plan.
+              </div>
+            )}
+          </section>
+
+          {/* Daily Reflection Section */}
+          <section style={glassStyle}>
+            <div style={cardTitleStyle}>Daily Reflection</div>
+            
+            <form onSubmit={handleAnalyzeReflection} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: '1.5rem'
+              }}>
+                {/* Question 1: Dropdown */}
+                <div style={inputGroupStyle}>
+                  <label style={labelStyle}>Did today's plan feel realistic?</label>
+                  <select 
+                    value={realistic} 
+                    onChange={(e) => setRealistic(e.target.value)} 
+                    style={inputStyle}
+                  >
+                    <option value="Yes" style={{ background: '#030014' }}>Yes</option>
+                    <option value="Mostly" style={{ background: '#030014' }}>Mostly</option>
+                    <option value="No" style={{ background: '#030014' }}>No</option>
+                  </select>
+                </div>
+
+                {/* Question 2: Satisfaction progress slider */}
+                <div style={inputGroupStyle}>
+                  <label style={labelStyle}>
+                    How satisfied are you with today's progress? <span style={{ color: '#a78bfa', fontWeight: 'bold' }}>({satisfaction}/5)</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    value={satisfaction}
+                    onChange={(e) => setSatisfaction(Number(e.target.value))}
+                    style={{
+                      width: '100%',
+                      height: '6px',
+                      background: 'rgba(255, 255, 255, 0.12)',
+                      borderRadius: '3px',
+                      WebkitAppearance: 'none',
+                      margin: '10px 0',
+                      cursor: 'pointer',
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b' }}>
+                    <span>1</span>
+                    <span>5</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Question 3: If you could change one thing */}
+              <div style={inputGroupStyle}>
+                <label style={labelStyle}>If you could change one thing about today, what would it be?</label>
+                <textarea
+                  style={{
+                    width: '100%',
+                    height: '80px',
+                    fontSize: '0.9rem',
+                    background: 'rgba(0, 0, 0, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '0.75rem',
+                    padding: '0.75rem',
+                    color: 'white',
+                    outline: 'none',
+                    resize: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  placeholder="e.g. Start deep work 30 mins earlier or reduce focus blocks..."
+                  value={reflection}
+                  onChange={(e) => setReflection(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Analyze Reflection Button */}
+              <button
+                type="submit"
+                disabled={isAnalyzingReflection}
+                style={{
+                  ...btnPrimaryStyle,
+                  background: isAnalyzingReflection ? 'rgba(124, 58, 237, 0.5)' : '#7c3aed',
+                  cursor: isAnalyzingReflection ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isAnalyzingReflection ? (
+                  <>
+                    <span style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Analyze Reflection</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Reflection Analysis Error */}
+            {reflectionAnalysisError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '1rem',
+                padding: '1rem 1.25rem',
+                display: 'flex',
+                gap: '0.75rem',
+                alignItems: 'center',
+                color: '#f87171',
+                fontSize: '0.85rem',
+                marginTop: '1.25rem',
+              }}>
+                <AlertCircle style={{ flexShrink: 0 }} className="w-5 h-5" />
+                <div>
+                  {reflectionAnalysisError}
+                </div>
+              </div>
+            )}
+
+            {/* Reflection Analysis Output */}
+            {reflectionAnalysis && (
+              <div style={{
+                marginTop: '1.5rem',
+                padding: '1.25rem',
+                background: 'rgba(124, 58, 237, 0.05)',
+                border: '1px solid rgba(124, 58, 237, 0.15)',
+                borderRadius: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                    Reflection Summary
+                  </div>
+                  <p style={{ fontSize: '0.9rem', color: '#f8fafc', lineHeight: '1.4', margin: 0 }}>
+                    {reflectionAnalysis.reflection_summary}
+                  </p>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
+                    Tomorrow's Improvement
+                  </div>
+                  <p style={{ fontSize: '0.9rem', color: '#94a3b8', lineHeight: '1.4', margin: 0 }}>
+                    {reflectionAnalysis.tomorrow_improvement}
+                  </p>
+                </div>
+
+                {reflectionAnalysis.encouragement && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    background: 'rgba(244, 114, 182, 0.08)',
+                    borderLeft: '3px solid #f472b6',
+                    borderRadius: '0.375rem',
+                  }}>
+                    <div style={{ fontSize: '0.85rem', fontStyle: 'italic', color: '#f472b6', lineHeight: '1.4' }}>
+                      "{reflectionAnalysis.encouragement}"
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -597,15 +1035,16 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() => setReflectionSaved(true)}
+                  disabled={isSavingReflection}
+                  onClick={handleSaveReflection}
                   style={{
-                    background: reflectionSaved ? '#10b981' : '#7c3aed',
+                    background: isSavingReflection ? 'rgba(124, 58, 237, 0.5)' : (reflectionSaved ? '#10b981' : '#7c3aed'),
                     border: 'none',
                     padding: '0.6rem 1rem',
                     borderRadius: '0.75rem',
                     color: 'white',
                     fontWeight: 600,
-                    cursor: 'pointer',
+                    cursor: isSavingReflection ? 'not-allowed' : 'pointer',
                     fontSize: '0.8rem',
                     transition: 'all 0.2s',
                     display: 'flex',
@@ -615,8 +1054,13 @@ export default function App() {
                     boxShadow: reflectionSaved ? '0 0 15px rgba(16, 185, 129, 0.3)' : '0 0 15px rgba(124, 58, 237, 0.3)',
                   }}
                 >
-                  {reflectionSaved ? (
-                    <>✓ Saved locally</>
+                  {isSavingReflection ? (
+                    <>
+                      <span style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
+                      <span>Saving...</span>
+                    </>
+                  ) : reflectionSaved ? (
+                    <>✓ Saved</>
                   ) : (
                     'Save Reflection'
                   )}
@@ -633,12 +1077,60 @@ export default function App() {
                 flexDirection: 'column',
                 gap: '0.5rem',
               }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Tomorrow Feels Easier Because...
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4', margin: 0 }}>
-                  {futureReliefText}
-                </p>
+                {isSavingReflection ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '80px' }}>
+                    <span style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#a78bfa', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite' }} />
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Analyzing reflection...</span>
+                  </div>
+                ) : reflectionSaveError ? (
+                  <>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <AlertCircle className="w-3.5 h-3.5" /> Error
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#f87171', lineHeight: '1.4', margin: 0 }}>
+                      Unable to generate plan. Please try again.
+                    </p>
+                  </>
+                ) : bottomReflectionAnalysis ? (
+                  <>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      AI Reflection Summary
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#f8fafc', lineHeight: '1.4', margin: 0 }}>
+                      {bottomReflectionAnalysis.reflection_summary}
+                    </p>
+                    
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#f472b6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: '0.5rem' }}>
+                      Tomorrow Improvement
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4', margin: 0 }}>
+                      {bottomReflectionAnalysis.tomorrow_improvement}
+                    </p>
+
+                    {bottomReflectionAnalysis.encouragement ? (
+                      <div style={{
+                        marginTop: '0.5rem',
+                        padding: '0.5rem 0.75rem',
+                        background: 'rgba(244, 114, 182, 0.08)',
+                        borderLeft: '3px solid #f472b6',
+                        borderRadius: '0.25rem',
+                      }}>
+                        <div style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#f472b6', lineHeight: '1.4' }}>
+                          "{bottomReflectionAnalysis.encouragement}"
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Tomorrow Feels Easier Because...
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: '1.4', margin: 0 }}>
+                      {futureReliefText}
+                    </p>
+                  </>
+                )}
               </div>
 
             </div>

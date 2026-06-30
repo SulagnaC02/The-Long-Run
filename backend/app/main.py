@@ -1,29 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from app.planner import generate_plan
+from app.models import PlanningRequest, ReflectionRequest
+from app.planner import generate_plan, analyze_reflection
 
 app = FastAPI(
-    title="The Long Run API",
-    version="1.0.0"
+    title="The Long Run Backend"
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-    ],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class PlanningRequest(BaseModel):
-    goal: str
-    energy: str
-    hours: int
-    deadline: str
 
 @app.get("/")
 def home():
@@ -31,11 +23,21 @@ def home():
         "message": "The Long Run Backend Running 🚀"
     }
 
+
 @app.post("/generate-plan")
-def generate_day_plan(request: PlanningRequest):
+def get_plan(request: PlanningRequest):
     return generate_plan(
         request.goal,
         request.energy,
         request.hours,
         request.deadline
+    )
+
+
+@app.post("/analyze-reflection")
+def post_analyze_reflection(request: ReflectionRequest):
+    return analyze_reflection(
+        request.realistic,
+        request.satisfaction,
+        request.reflection
     )

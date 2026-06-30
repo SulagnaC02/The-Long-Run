@@ -351,7 +351,7 @@ export default function App() {
     drawSectionHeader("YOUR SCHEDULE TIMELINE");
     const scheduleItems = plan?.today_plan || [];
     if (scheduleItems.length > 0) {
-      scheduleItems.forEach((item: any, idx: number) => {
+      scheduleItems.forEach((item: any) => {
         const isString = typeof item === 'string';
         const taskTitle = isString ? item : (item.task || 'Focus Block');
         const taskTime = isString ? '' : (item.time || item.duration || '');

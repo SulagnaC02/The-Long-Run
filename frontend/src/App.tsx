@@ -17,6 +17,9 @@ import {
 import { jsPDF } from 'jspdf';
 
 export default function App() {
+  const API =
+  import.meta.env.VITE_API_URL ||
+  "https://the-long-run-backend.onrender.com";
   // Input states
   const [goal, setGoal] = useState('');
   const [energy, setEnergy] = useState('Medium');
@@ -92,7 +95,7 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/generate-plan', {
+      const response = await fetch(`${API}/generate-plan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -155,7 +158,7 @@ export default function App() {
     setReflectionAnalysis(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/analyze-reflection', {
+      const response = await fetch(`${API}/analyze-reflection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -217,7 +220,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/analyze-reflection', {
+      const response = await fetch(`${API}/analyze-reflection`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
